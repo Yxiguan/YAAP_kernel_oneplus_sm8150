@@ -133,3 +133,4 @@ Android.bp
 *.sh
 out
 kernelzip/
+/logs

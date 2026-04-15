@@ -16,6 +16,12 @@ else
 LD_COMPAT ?= $(CROSS_COMPILE_COMPAT)ld
 endif
 
+ifeq ($(cc-name),clang)
+OBJCOPY_COMPAT ?= llvm-objcopy
+else
+OBJCOPY_COMPAT ?= $(CROSS_COMPILE_COMPAT)objcopy
+endif
+
 # Same as cc-*option, but using CC_ARM32 instead of CC
 cc32-option = $(call try-run,\
         $(CC_ARM32) $(1) -c -x c /dev/null -o "$$TMP",$(1),$(2))
@@ -132,7 +138,7 @@ include/generated/vdso32-offsets.h: $(obj)/vdso.so.dbg FORCE
 # Strip rule for vdso.so
 $(obj)/vdso.so: OBJCOPYFLAGS := -S
 $(obj)/vdso.so: $(obj)/vdso.so.dbg FORCE
-	$(call if_changed,objcopy)
+	$(call if_changed,vdso32objcopy)
 
 $(obj)/vdso.so.dbg: $(obj)/vdso.so.raw $(obj)/$(munge) FORCE
 	$(call if_changed,vdsomunge)
@@ -155,6 +161,9 @@ quiet_cmd_vdsocc = VDSOC32   $@
       cmd_vdsocc = $(CC_ARM32) -Wp,-MD,$(depfile) $(VDSO_CFLAGS) -c -o $@ $<
 quiet_cmd_vdsoas = VDSOA32   $@
       cmd_vdsoas = $(CC_ARM32) -Wp,-MD,$(depfile) $(VDSO_AFLAGS) -c -o $@ $<
+quiet_cmd_vdso32objcopy = OBJCOPY32 $@
+      cmd_vdso32objcopy = $(OBJCOPY_COMPAT) $(OBJCOPYFLAGS) \
+                          $(OBJCOPYFLAGS_$(@F)) $< $@
 
 quiet_cmd_vdsomunge = MUNGE   $@
       cmd_vdsomunge = $(obj)/$(munge) $< $@

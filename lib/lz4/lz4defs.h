@@ -80,6 +80,7 @@ typedef uintptr_t uptrval;
  **************************************/
 #define LZ4_DISTANCE_ABSOLUTE_MAX 65535
 #define LZ4_DISTANCE_MAX 65535
+#define MAX_DISTANCE LZ4_DISTANCE_MAX
 #define MINMATCH 4
 
 #define WILDCOPYLENGTH 8
@@ -171,6 +172,12 @@ static FORCE_INLINE void LZ4_wildCopy8(void *dstPtr, const void *srcPtr,
 		d += 8;
 		s += 8;
 	} while (d < e);
+}
+
+static FORCE_INLINE void LZ4_wildCopy(void *dstPtr, const void *srcPtr,
+				      void *dstEnd)
+{
+	LZ4_wildCopy8(dstPtr, srcPtr, dstEnd);
 }
 
 static FORCE_INLINE unsigned int LZ4_NbCommonBytes(reg_t val)
