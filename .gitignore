@@ -130,7 +130,7 @@ kernel/configs/android-*.cfg
 #
 Android.bp
 
-*.sh
+# *.sh
 out
 kernelzip/
 /logs
