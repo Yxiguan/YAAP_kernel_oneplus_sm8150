@@ -10,7 +10,7 @@ DEFCONFIG="neptune_defconfig"
 FRAGMENT_DIR="${KERNEL_DIR}/arch/arm64/configs/droidspaces"
 FRAGMENTS=(
   "${FRAGMENT_DIR}/droidspaces.config"
-  "${FRAGMENT_DIR}/droidspace-ufw.config"
+#   "${FRAGMENT_DIR}/droidspace-ufw.config"
 )
 
 export ARCH=arm64
