@@ -876,9 +876,17 @@ void rebuild_sched_domains(void)
 static int update_cpus_allowed(struct cpuset *cs, struct task_struct *p,
 			       const struct cpumask *new_mask)
 {
+	const struct cpumask *limit;
 	int ret;
 
-	if (cpumask_subset(&p->cpus_requested, cs->cpus_requested)) {
+	/*
+	 * On the default hierarchy cpus_requested need not be a subset of
+	 * the parent's, so restoring the task's own request is only safe
+	 * within effective_cpus; anything wider would let the task run
+	 * outside cpuset.cpus.effective.
+	 */
+	limit = is_in_v2_mode() ? cs->effective_cpus : cs->cpus_requested;
+	if (cpumask_subset(&p->cpus_requested, limit)) {
 		ret = set_cpus_allowed_ptr(p, &p->cpus_requested);
 		if (!ret)
 			return ret;
@@ -928,7 +936,18 @@ static void update_cpumasks_hier(struct cpuset *cs, struct cpumask *new_cpus)
 	cpuset_for_each_descendant_pre(cp, pos_css, cs) {
 		struct cpuset *parent = parent_cs(cp);
 
-		cpumask_and(new_cpus, cp->cpus_allowed, parent->effective_cpus);
+		/*
+		 * On the default hierarchy recompute from cpus_requested
+		 * like the hotplug path does: cpus_allowed is a snapshot
+		 * taken at write time (requested & active) and is never
+		 * refreshed by v2 hotplug, so it may lag behind.
+		 */
+		if (is_in_v2_mode())
+			cpumask_and(new_cpus, cp->cpus_requested,
+				    parent->effective_cpus);
+		else
+			cpumask_and(new_cpus, cp->cpus_allowed,
+				    parent->effective_cpus);
 
 		/*
 		 * If it becomes empty, inherit the effective mask of the
@@ -1860,7 +1879,7 @@ static s64 cpuset_read_s64(struct cgroup_subsys_state *css, struct cftype *cft)
  * for the common functions, 'private' gives the type of file
  */
 
-static struct cftype files[] = {
+static struct cftype legacy_files[] = {
 	{
 		.name = "cpus",
 		.seq_show = cpuset_common_seq_show,
@@ -1957,6 +1976,44 @@ static struct cftype files[] = {
 		.read_u64 = cpuset_read_u64,
 		.write_u64 = cpuset_write_u64,
 		.private = FILE_MEMORY_PRESSURE_ENABLED,
+	},
+
+	{ }	/* terminate */
+};
+
+/*
+ * This is currently a minimal set for the default hierarchy. It can be
+ * expanded later on by migrating more features and control files from v1.
+ */
+static struct cftype dfl_files[] = {
+	{
+		.name = "cpus",
+		.seq_show = cpuset_common_seq_show,
+		.write = cpuset_write_resmask,
+		.max_write_len = (100U + 6 * NR_CPUS),
+		.private = FILE_CPULIST,
+		.flags = CFTYPE_NOT_ON_ROOT,
+	},
+
+	{
+		.name = "mems",
+		.seq_show = cpuset_common_seq_show,
+		.write = cpuset_write_resmask,
+		.max_write_len = (100U + 6 * MAX_NUMNODES),
+		.private = FILE_MEMLIST,
+		.flags = CFTYPE_NOT_ON_ROOT,
+	},
+
+	{
+		.name = "cpus.effective",
+		.seq_show = cpuset_common_seq_show,
+		.private = FILE_EFFECTIVE_CPULIST,
+	},
+
+	{
+		.name = "mems.effective",
+		.seq_show = cpuset_common_seq_show,
+		.private = FILE_EFFECTIVE_MEMLIST,
 	},
 
 	{ }	/* terminate */
@@ -2143,8 +2200,10 @@ struct cgroup_subsys cpuset_cgrp_subsys = {
 	.post_attach	= cpuset_post_attach,
 	.bind		= cpuset_bind,
 	.fork		= cpuset_fork,
-	.legacy_cftypes	= files,
+	.legacy_cftypes	= legacy_files,
+	.dfl_cftypes	= dfl_files,
 	.early_init	= true,
+	.threaded	= true,
 };
 
 /**
