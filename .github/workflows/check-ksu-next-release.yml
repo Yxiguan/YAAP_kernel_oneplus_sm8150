@@ -1,4 +1,4 @@
-name: Check KSU-Next release & trigger build
+name: Check KSU-Next legacy & trigger build
 
 on:
   schedule:
@@ -16,50 +16,48 @@ concurrency:
 
 jobs:
   check:
-    name: Detect KSU-Next update and trigger build-kernel.yml
+    name: Detect KSU-Next legacy update and trigger build-kernel.yml
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Resolve latest KSU-Next release tag
+      - name: Resolve KSU-Next legacy branch HEAD
         id: ksu
         shell: bash
         run: |
           set -euo pipefail
-          TAG="$(curl -fsSL --retry 3 \
-            'https://api.github.com/repos/KernelSU-Next/KernelSU-Next/releases/latest' \
-            | jq -r '.tag_name // empty')"
-          test -n "${TAG}" || { echo 'failed to resolve latest KSU-Next release'; exit 1; }
-          echo "Latest KSU-Next release: ${TAG}"
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          SHA="$(git ls-remote https://github.com/KernelSU-Next/KernelSU-Next.git refs/heads/legacy | awk '{print $1}')"
+          test -n "${SHA}" || { echo 'failed to resolve KSU-Next legacy HEAD'; exit 1; }
+          echo "KSU-Next legacy HEAD: ${SHA}"
+          echo "head=${SHA}" >> "${GITHUB_OUTPUT}"
 
-      - name: Restore last known tag
+      - name: Restore last known legacy HEAD
         id: cache
         uses: actions/cache@v4
         with:
-          path: .ksu-last-tag
-          key: ksu-last-tag-${{ steps.ksu.outputs.tag }}
+          path: .ksu-last-head
+          key: ksu-last-head-${{ steps.ksu.outputs.head }}
           restore-keys: |
-            ksu-last-tag-
+            ksu-last-head-
 
       - name: Compare with last build
         id: decide
         shell: bash
         run: |
-          LAST="$(cat .ksu-last-tag 2>/dev/null || true)"
-          CUR="${{ steps.ksu.outputs.tag }}"
+          LAST="$(cat .ksu-last-head 2>/dev/null || true)"
+          CUR="${{ steps.ksu.outputs.head }}"
           if [ -n "${LAST}" ] && [ "${LAST}" = "${CUR}" ]; then
-            echo "KSU-Next unchanged at ${CUR}, skipping build."
+            echo "KSU-Next legacy unchanged at ${CUR}, skipping build."
             echo "build=false" >> "${GITHUB_OUTPUT}"
           else
-            echo "KSU-Next: ${LAST:-<none>} -> ${CUR}"
+            echo "KSU-Next legacy: ${LAST:-<none>} -> ${CUR}"
             echo "build=true" >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Persist new tag
+      - name: Persist new legacy HEAD
         if: steps.decide.outputs.build == 'true'
         shell: bash
-        run: echo "${{ steps.ksu.outputs.tag }}" > .ksu-last-tag
+        run: echo "${{ steps.ksu.outputs.head }}" > .ksu-last-head
 
       - name: Trigger build-kernel.yml
         if: steps.decide.outputs.build == 'true'

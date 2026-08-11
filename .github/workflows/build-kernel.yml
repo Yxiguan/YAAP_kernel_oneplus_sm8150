@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -49,6 +49,13 @@ jobs:
           echo "==> installing KernelSU-Next (legacy) into ${KERNEL_DIR}"
           cd "${KERNEL_DIR}"
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+          echo "==> resolve KernelSU-Next version (same formula as kernel/Kbuild)"
+          cd "${KERNEL_DIR}/KernelSU-Next"
+          [ -f .git/shallow ] && git fetch --unshallow 2>/dev/null || true
+          KSU_GIT_VERSION="$(git rev-list --count HEAD)"
+          KSU_VERSION="$(( 30000 + KSU_GIT_VERSION + 200 ))"
+          echo "KSU_VERSION=${KSU_VERSION}" >> "${GITHUB_ENV}"
 
           echo "==> prepend CONFIG_KSU=y to neptune_defconfig"
           grep -q '^CONFIG_KSU=y' "${DEFCONFIG}" \
@@ -237,7 +244,23 @@ jobs:
       - name: Upload AK3 kernel zip
         uses: actions/upload-artifact@v4
         with:
-          name: yaap-neptune-droidspaces-${{ github.sha }}
+          name: AnyKernel3_KernelSU-Next-${{ env.KSU_VERSION }}
           path: yaap-neptune-droidspaces.zip
           if-no-files-found: error
           compression-level: 0
+
+      - name: Publish GitHub Release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: AnyKernel3_KernelSU-Next-${{ env.KSU_VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: AnyKernel3_KernelSU-Next-${{ env.KSU_VERSION }}
+          body: |
+            Automated neptune droidspaces kernel build with KernelSU-Next.
+
+            - KernelSU-Next version: `${{ env.KSU_VERSION }}`
+            - Build commit: `${{ github.sha }}`
+          files: yaap-neptune-droidspaces.zip
