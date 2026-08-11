@@ -37,6 +37,23 @@ jobs:
           path: kernel
           lfs: true
 
+      - name: Set up KernelSU-Next (legacy)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          KERNEL_DIR="${GITHUB_WORKSPACE}/kernel"
+          DEFCONFIG="${KERNEL_DIR}/arch/arm64/configs/neptune_defconfig"
+
+          echo "==> installing KernelSU-Next (legacy) into ${KERNEL_DIR}"
+          cd "${KERNEL_DIR}"
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+          echo "==> prepend CONFIG_KSU=y to neptune_defconfig"
+          grep -q '^CONFIG_KSU=y' "${DEFCONFIG}" \
+            || sed -i '1i CONFIG_KSU=y' "${DEFCONFIG}"
+          grep -n '^CONFIG_KSU' "${DEFCONFIG}"
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -45,7 +62,7 @@ jobs:
             bc bison flex \
             libssl-dev libelf-dev zlib1g-dev \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf \
-            cpio xz-utils
+            cpio xz-utils zip
 
       - name: Fetch AOSP prebuilt clang (${{ env.CLANG_REF }})
         run: |
@@ -186,12 +203,31 @@ jobs:
 
           make "${MAKE_ARGS[@]}" -j"$(nproc)"
 
-      - name: Upload kernel artifacts
+      - name: Package kernel with AnyKernel3
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          AK3_DIR="${GITHUB_WORKSPACE}/AnyKernel3"
+          BOOT_DIR="${GITHUB_WORKSPACE}/kernel/out/arch/arm64/boot"
+          ZIP_NAME="yaap-neptune-droidspaces.zip"
+
+          git clone --depth 1 https://github.com/osm0sis/AnyKernel3.git "${AK3_DIR}"
+
+          if [ ! -f "${BOOT_DIR}/Image" ]; then
+            echo "Build output missing: ${BOOT_DIR}/Image" >&2
+            ls -l "${BOOT_DIR}" || true
+            exit 1
+          fi
+          cp -v "${BOOT_DIR}/Image" "${AK3_DIR}/Image"
+
+          cd "${AK3_DIR}"
+          zip -r9 "${GITHUB_WORKSPACE}/${ZIP_NAME}" . -x '*.git*'
+
+      - name: Upload AK3 kernel zip
         uses: actions/upload-artifact@v4
         with:
           name: yaap-neptune-droidspaces-${{ github.sha }}
-          path: |
-            kernel/out/arch/arm64/boot/
-            kernel/out/.config
+          path: yaap-neptune-droidspaces.zip
           if-no-files-found: error
           compression-level: 0

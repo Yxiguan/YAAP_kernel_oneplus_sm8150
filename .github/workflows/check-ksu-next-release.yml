@@ -1,0 +1,69 @@
+name: Check KSU-Next release & trigger build
+
+on:
+  schedule:
+    # 每天 UTC 02:00 检查一次
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: check-ksu-next-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Detect KSU-Next update and trigger build-kernel.yml
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Resolve latest KSU-Next release tag
+        id: ksu
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$(curl -fsSL --retry 3 \
+            'https://api.github.com/repos/KernelSU-Next/KernelSU-Next/releases/latest' \
+            | jq -r '.tag_name // empty')"
+          test -n "${TAG}" || { echo 'failed to resolve latest KSU-Next release'; exit 1; }
+          echo "Latest KSU-Next release: ${TAG}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore last known tag
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .ksu-last-tag
+          key: ksu-last-tag-${{ steps.ksu.outputs.tag }}
+          restore-keys: |
+            ksu-last-tag-
+
+      - name: Compare with last build
+        id: decide
+        shell: bash
+        run: |
+          LAST="$(cat .ksu-last-tag 2>/dev/null || true)"
+          CUR="${{ steps.ksu.outputs.tag }}"
+          if [ -n "${LAST}" ] && [ "${LAST}" = "${CUR}" ]; then
+            echo "KSU-Next unchanged at ${CUR}, skipping build."
+            echo "build=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "KSU-Next: ${LAST:-<none>} -> ${CUR}"
+            echo "build=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Persist new tag
+        if: steps.decide.outputs.build == 'true'
+        shell: bash
+        run: echo "${{ steps.ksu.outputs.tag }}" > .ksu-last-tag
+
+      - name: Trigger build-kernel.yml
+        if: steps.decide.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run build-kernel.yml --repo "$GITHUB_REPOSITORY"

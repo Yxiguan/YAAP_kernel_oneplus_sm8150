@@ -134,3 +134,4 @@ Android.bp
 out
 kernelzip/
 /logs
+!.github/
