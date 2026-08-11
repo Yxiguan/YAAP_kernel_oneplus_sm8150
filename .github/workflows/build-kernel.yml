@@ -202,8 +202,6 @@ jobs:
           echo "==> fragments: ${FRAGMENTS[*]}"
           echo "==> nproc: $(nproc)"
 
-          make -C "${KERNEL_DIR}" mrproper
-          rm -rf "${OUT_DIR}"
           mkdir -p "${OUT_DIR}"
 
           make "${MAKE_ARGS[@]}" "${DEFCONFIG}"
