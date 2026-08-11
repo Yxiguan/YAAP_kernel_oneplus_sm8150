@@ -1,8 +1,6 @@
-
 name: Build neptune droidspaces kernel
 
 on:
-  # 在 GitHub Actions 页面手动触发，可指定 AOSP 预编译 clang 版本
   workflow_dispatch:
     inputs:
       clang_ref:
@@ -28,7 +26,6 @@ jobs:
     timeout-minutes: 120
 
     env:
-      # push/PR 时 inputs 为空，回退到默认 clang 版本
       CLANG_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.clang_ref || 'clang-r547379' }}
       USE_CCACHE: '1'
       CCACHE_BIN: ccache
@@ -54,27 +51,58 @@ jobs:
         run: |
           set -euo pipefail
 
-          CLONE_DIR="$(pwd)/Toolchain/linux-x86"
+          GERRIT="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
+          STAGE="$(pwd)/Toolchain/.stage-${CLANG_REF}"
           mkdir -p "$(pwd)/Toolchain"
+          rm -rf "${STAGE}"
 
-          echo "==> fetching prebuilt clang ${CLANG_REF} (~1.5 GiB), please wait..."
+          echo "==> downloading ${CLANG_REF} tarball (~1.5 GiB), please wait..."
+          ok=0
           for i in 1 2 3; do
-            if git clone --depth 1 -b "${CLANG_REF}" \
-                https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-                "${CLONE_DIR}"; then
+            if curl -fsSL --connect-timeout 30 --retry 2 \
+                -o "${STAGE}.tar.gz" \
+                "${GERRIT}/+archive/refs/heads/main/${CLANG_REF}.tar.gz"; then
+              mkdir -p "${STAGE}"
+              tar -xzf "${STAGE}.tar.gz" -C "${STAGE}"
+              rm -f "${STAGE}.tar.gz"
+              ok=1
               break
             fi
-            echo "==> clang download failed (attempt ${i}/3), retrying..."
-            rm -rf "${CLONE_DIR}"
-            sleep 10
+            echo "==> tarball download failed (attempt ${i}/3), retrying..."
+            rm -f "${STAGE}.tar.gz"
+            sleep 5
           done
-          test -d "${CLONE_DIR}/.git" || { echo "==> clang download failed after 3 attempts"; exit 1; }
 
-          # 兼容不同仓库布局：仓库根目录直接是工具链，或按版本分子目录
-          CLANG_BIN="$(find "${CLONE_DIR}" -type f -name clang -path '*/bin/clang' | head -n1)"
-          test -x "${CLANG_BIN}" || { echo "prebuilt clang not found in ${CLONE_DIR}"; exit 1; }
-          echo "CLANG_DIR=$(dirname "$(dirname "${CLANG_BIN}")")" >> "$GITHUB_ENV"
-          "${CLANG_BIN}" --version | head -n1
+          if [ "${ok}" != 1 ]; then
+            echo "==> tarball download failed, falling back to shallow clone of main"
+            rm -rf "${STAGE}"
+            for i in 1 2 3; do
+              if git clone --depth 1 "${GERRIT}" "${STAGE}"; then
+                if [ -d "${STAGE}/${CLANG_REF}" ]; then
+                  mv "${STAGE}/${CLANG_REF}" "${STAGE}-tree"
+                  rm -rf "${STAGE}"
+                  mv "${STAGE}-tree" "${STAGE}"
+                fi
+                ok=1
+                break
+              fi
+              echo "==> clone failed (attempt ${i}/3), retrying..."
+              rm -rf "${STAGE}"
+              sleep 5
+            done
+          fi
+
+          [ "${ok}" = 1 ] || { echo "==> clang download failed after all attempts"; exit 1; }
+
+          CLANG_BIN="$(find "${STAGE}" -type f -name clang -path '*/bin/clang' | head -n1)"
+          test -x "${CLANG_BIN}" || { echo "prebuilt clang not found in ${STAGE}"; exit 1; }
+          rm -rf "$(pwd)/Toolchain/${CLANG_REF}"
+          mv "$(dirname "$(dirname "${CLANG_BIN}")")" "$(pwd)/Toolchain/${CLANG_REF}"
+          rm -rf "${STAGE}"
+
+          CLANG_DIR="$(pwd)/Toolchain/${CLANG_REF}"
+          echo "CLANG_DIR=${CLANG_DIR}" >> "$GITHUB_ENV"
+          "${CLANG_DIR}/bin/clang" --version | head -n1
 
       - name: Configure ccache
         run: |
@@ -96,7 +124,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 与 build-neptune-droidspaces.sh 保持一致的参数
           KERNEL_DIR="${GITHUB_WORKSPACE}/kernel"
           CLANG_DIR="${CLANG_DIR}"
           OUT_DIR="${KERNEL_DIR}/out"
@@ -113,7 +140,6 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_COMPAT=arm-linux-gnueabihf-
 
-          # 与脚本一致的工具链存在性检查
           if [ "${USE_CCACHE}" != "0" ]; then
             command -v "${CCACHE_BIN}" >/dev/null 2>&1 || { echo "Missing ccache: ${CCACHE_BIN}"; exit 1; }
             TARGET_CC="${CCACHE_BIN} clang"
