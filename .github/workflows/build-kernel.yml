@@ -213,6 +213,8 @@ jobs:
 
           make "${MAKE_ARGS[@]}" "${DEFCONFIG}"
 
+          cd "${KERNEL_DIR}"
+
           "${KERNEL_DIR}/scripts/kconfig/merge_config.sh" \
             -O "${OUT_DIR}" \
             "${OUT_DIR}/.config" \
@@ -230,6 +232,14 @@ jobs:
           ZIP_NAME="yaap-neptune-droidspaces.zip"
 
           git clone --depth 1 https://github.com/osm0sis/AnyKernel3.git "${AK3_DIR}"
+
+          # tune anykernel.sh for this non-GKI device
+          sed -i \
+            -e 's/^kernel.string=.*/kernel.string=neptune droidspaces kernel (KernelSU-Next)/' \
+            -e 's/^do.devicecheck=1/do.devicecheck=0/' \
+            -e 's|^BLOCK=.*|BLOCK=/dev/block/bootdevice/by-name/boot;|' \
+            -e 's/^IS_SLOT_DEVICE=0;/IS_SLOT_DEVICE=auto;/' \
+            "${AK3_DIR}/anykernel.sh"
 
           if [ ! -f "${BOOT_DIR}/Image" ]; then
             echo "Build output missing: ${BOOT_DIR}/Image" >&2
