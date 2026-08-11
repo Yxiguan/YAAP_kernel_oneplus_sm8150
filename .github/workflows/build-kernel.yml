@@ -18,6 +18,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   build:
@@ -64,7 +65,18 @@ jobs:
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf \
             cpio xz-utils zip
 
+      - name: Cache AOSP prebuilt clang toolchain
+        id: clang-cache
+        uses: actions/cache@v4
+        with:
+          path: Toolchain
+          key: clang-${{ runner.os }}-${{ env.CLANG_REF }}
+
+      - name: Set CLANG_DIR
+        run: echo "CLANG_DIR=${GITHUB_WORKSPACE}/Toolchain/${CLANG_REF}" >> "$GITHUB_ENV"
+
       - name: Fetch AOSP prebuilt clang (${{ env.CLANG_REF }})
+        if: steps.clang-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
 
